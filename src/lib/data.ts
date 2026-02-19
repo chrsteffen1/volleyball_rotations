@@ -1,92 +1,132 @@
-import type { Player, Rotation, DefensivePreset, PlayerRole } from './types';
+import { DiagramData, Mode, Preset, Role } from "./types";
 
-const PLAYERS: Omit<Player, 'position'>[] = [
-  { id: 's', role: 'Setter', label: 'S' },
-  { id: 'oh1', role: 'Outside', label: 'H1' },
-  { id: 'mb1', role: 'Middle', label: 'M1' },
-  { id: 'rs', role: 'Right Side', label: 'RS' },
-  { id: 'oh2', role: 'Outside', label: 'H2' },
-  { id: 'l', role: 'Libero', label: 'L' },
-];
+const COLORS: Record<Role, string> = {
+  setter: "#a855f7",
+  middle: "#f59e0b",
+  right_side: "#ef4444",
+  outside1: "#22c55e",
+  outside2: "#22c55e",
+  libero: "#3b82f6",
+};
 
-const createRotation = (name: string, positions: Record<string, { x: number; y: number }>): Rotation => ({
-  name,
-  players: PLAYERS.map(p => ({
-    ...p,
-    position: positions[p.id] || { x: 50, y: 50 },
-  })),
-});
+const LABELS: Record<Role, string> = {
+  setter: "SETTER",
+  middle: "MIDDLE",
+  right_side: "RIGHT SIDE",
+  outside1: "OUTSIDE",
+  outside2: "OUTSIDE",
+  libero: "LIBERO",
+};
 
-export const serveReceiveRotations: Rotation[] = [
-  createRotation('Rotation 1', {
-    s: { x: 85, y: 85 },
-    oh1: { x: 15, y: 15 },
-    mb1: { x: 50, y: 15 },
-    rs: { x: 85, y: 15 },
-    oh2: { x: 15, y: 70 },
-    l: { x: 50, y: 80 },
-  }),
-  createRotation('Rotation 2', {
-    l: { x: 15, y: 15 },
-    s: { x: 85, y: 70 },
-    oh1: { x: 15, y: 70 },
-    mb1: { x: 50, y: 15 },
-    rs: { x: 85, y: 15 },
-    oh2: { x: 50, y: 80 },
-  }),
-  createRotation('Rotation 3', {
-    oh2: { x: 15, y: 15 },
-    l: { x: 50, y: 15 },
-    s: { x: 85, y: 85 },
-    oh1: { x: 15, y: 70 },
-    mb1: { x: 50, y: 80 },
-    rs: { x: 85, y: 70 },
-  }),
-  createRotation('Rotation 4', {
-    rs: { x: 15, y: 15 },
-    oh2: { x: 50, y: 15 },
-    l: { x: 85, y: 15 },
-    s: { x: 15, y: 85 },
-    oh1: { x: 50, y: 80 },
-    mb1: { x: 85, y: 70 },
-  }),
-  createRotation('Rotation 5', {
-    mb1: { x: 15, y: 15 },
-    rs: { x: 50, y: 15 },
-    oh2: { x: 85, y: 15 },
-    l: { x: 50, y: 80 },
-    s: { x: 15, y: 70 },
-    oh1: { x: 85, y: 70 },
-  }),
-  createRotation('Rotation 6', {
-    oh1: { x: 15, y: 15 },
-    mb1: { x: 50, y: 15 },
-    rs: { x: 85, y: 15 },
-    oh2: { x: 50, y: 80 },
-    l: { x: 85, y: 70 },
-    s: { x: 15, y: 85 },
-  }),
-];
+// Helpers
+const id = () => crypto.randomUUID();
 
-export const defensivePresets: DefensivePreset[] = [
-    {
-        name: 'Base 1',
-        positions: {
-            l: { x: 50, y: 80 },
-            oh1: { x: 15, y: 85 },
-            oh2: { x: 15, y: 85 }, // Example: may vary based on front row player
-            s: { x: 85, y: 85 },
-            rs: { x: 85, y: 85 },
-        }
-    },
-    {
-        name: 'Base 2',
-        positions: {
-            l: { x: 50, y: 70 },
-            oh1: { x: 10, y: 90 },
-            oh2: { x: 10, y: 90 },
-            s: { x: 90, y: 90 },
-            rs: { x: 90, y: 90 },
-        }
-    }
-];
+export function createRoleToken(role: Role, x: number, y: number) {
+  return {
+    id: id(),
+    role,
+    label: LABELS[role],
+    color: COLORS[role],
+    x,
+    y,
+  };
+}
+
+export function defaultPresets(): { base1: Preset; base2: Preset } {
+  // Normalized coordinates (0..1) inside the court rect.
+  // y close to 1 = deep on our side; y close to 0 = near opponent side.
+  const base1: Preset = {
+    setter: [0.55, 0.62],
+    middle: [0.50, 0.40],
+    right_side: [0.78, 0.72],
+    outside1: [0.22, 0.70],
+    outside2: [0.38, 0.58],
+    libero: [0.55, 0.88],
+  };
+
+  // A “shifted” style: libero shades toward left/middle; left defender drops a bit.
+  const base2: Preset = {
+    setter: [0.58, 0.58],
+    middle: [0.52, 0.38],
+    right_side: [0.82, 0.70],
+    outside1: [0.18, 0.78],
+    outside2: [0.42, 0.56],
+    libero: [0.45, 0.90],
+  };
+
+  return { base1, base2 };
+}
+
+export function defaultDiagram(mode: Mode, rotation: number | null): DiagramData {
+  const presets = defaultPresets();
+
+  // Rough SR “shape” variants per rotation; these are approximations you can tweak.
+  // (You’ll drag them into place and save.)
+  const srLayouts: Record<number, Array<[Role, number, number]>> = {
+    1: [
+      ["right_side", 0.12, 0.55],
+      ["middle", 0.45, 0.55],
+      ["outside1", 0.28, 0.82],
+      ["libero", 0.50, 0.90],
+      ["outside2", 0.70, 0.82],
+      ["setter", 0.88, 0.85],
+    ],
+    2: [
+      ["setter", 0.85, 0.25],
+      ["middle", 0.10, 0.45],
+      ["outside1", 0.25, 0.60],
+      ["outside2", 0.52, 0.65],
+      ["libero", 0.75, 0.65],
+      ["right_side", 0.50, 0.88],
+    ],
+    3: [
+      ["setter", 0.55, 0.25],
+      ["middle", 0.85, 0.45],
+      ["outside1", 0.25, 0.60],
+      ["libero", 0.50, 0.72],
+      ["outside2", 0.75, 0.62],
+      ["right_side", 0.62, 0.90],
+    ],
+    4: [
+      ["setter", 0.12, 0.28],
+      ["middle", 0.20, 0.42],
+      ["outside1", 0.30, 0.65],
+      ["outside2", 0.52, 0.65],
+      ["libero", 0.75, 0.65],
+      ["right_side", 0.85, 0.90],
+    ],
+    5: [
+      ["middle", 0.12, 0.35],
+      ["setter", 0.35, 0.52],
+      ["right_side", 0.88, 0.55],
+      ["outside1", 0.30, 0.72],
+      ["outside2", 0.52, 0.72],
+      ["libero", 0.70, 0.75],
+    ],
+    6: [
+      ["right_side", 0.72, 0.32],
+      ["middle", 0.88, 0.42],
+      ["setter", 0.65, 0.55],
+      ["outside1", 0.25, 0.75],
+      ["libero", 0.50, 0.80],
+      ["outside2", 0.75, 0.75],
+    ],
+  };
+
+  const circles =
+    mode === "serve_receive"
+      ? (srLayouts[rotation ?? 1] ?? srLayouts[1]).map(([r, x, y]) =>
+          createRoleToken(r, x, y)
+        )
+      : (Object.entries(presets.base1) as Array<[Role, [number, number).map(
+          ([r, [x, y]]) => createRoleToken(r, x, y)
+        );
+
+  return {
+    version: 1,
+    circles,
+    attacker: { enabled: mode === "defense", x: 0.80, y: 0.18 },
+    basePresets: presets,
+  };
+}
+]]>

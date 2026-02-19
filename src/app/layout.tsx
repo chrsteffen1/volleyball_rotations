@@ -1,29 +1,20 @@
-import type {Metadata} from 'next';
 import './globals.css';
-import { cn } from "@/lib/utils"
-import { Toaster } from "@/components/ui/toaster"
+import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'VolleyRotations',
-  description: 'Visualize volleyball rotations and defensive setups.',
+  title: "VolleyRotations",
+  description: "Volleyball rotation visualizer",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body className={cn("font-body antialiased")}>
-        {children}
-        <Toaster />
-      </body>
+      <body className="min-h-screen bg-neutral-950 text-neutral-100">{children}</body>
     </html>
   );
 }
