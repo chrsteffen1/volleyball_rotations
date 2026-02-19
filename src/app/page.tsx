@@ -1,107 +1,191 @@
-'use client';
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Mode, DiagramData, DiagramRow, Role } from "@/lib/types";
-import { defaultDiagram, createRoleToken } from "@/lib/data";
 
-type Active = {
-  diagramId: string | null;
-  name: string | null;
+type Mode = "serve_receive" | "defense";
+
+type Role =
+  | "setter"
+  | "middle"
+  | "right_side"
+  | "outside1"
+  | "outside2"
+  | "libero";
+
+type CircleToken = {
+  id: string;
+  role: Role | "attacker";
+  label: string;
+  color: string;
+  x: number; // 0..1
+  y: number; // 0..1
 };
 
 const ROLE_ORDER: Role[] = ["setter", "middle", "right_side", "outside1", "outside2", "libero"];
 
-export default function Home() {
-  const [ready, setReady] = useState(false);
+const COLORS: Record<Role | "attacker", string> = {
+  setter: "#a855f7",
+  middle: "#f59e0b",
+  right_side: "#ef4444",
+  outside1: "#22c55e",
+  outside2: "#22c55e",
+  libero: "#3b82f6",
+  attacker: "#fb7185",
+};
 
+const LABELS: Record<Role | "attacker", string> = {
+  setter: "SETTER",
+  middle: "MIDDLE",
+  right_side: "RIGHT SIDE",
+  outside1: "OUTSIDE",
+  outside2: "OUTSIDE",
+  libero: "LIBERO",
+  attacker: "ATTACKER",
+};
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+const uid = () => (typeof crypto !== "undefined" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+
+function makeToken(role: Role | "attacker", x: number, y: number): CircleToken {
+  return { id: uid(), role, label: LABELS[role], color: COLORS[role], x, y };
+}
+
+// Rough SR defaults (approximate to your screenshots; you’ll drag to refine)
+const SR_DEFAULTS: Record<number, Array<[Role, number, number]>> = {
+  1: [
+    ["right_side", 0.12, 0.55],
+    ["middle", 0.45, 0.55],
+    ["outside1", 0.28, 0.82],
+    ["libero", 0.50, 0.90],
+    ["outside2", 0.70, 0.82],
+    ["setter", 0.88, 0.85],
+  ],
+  2: [
+    ["middle", 0.10, 0.45],
+    ["outside1", 0.25, 0.60],
+    ["outside2", 0.52, 0.65],
+    ["libero", 0.75, 0.65],
+    ["right_side", 0.50, 0.88],
+    ["setter", 0.85, 0.25],
+  ],
+  3: [
+    ["setter", 0.55, 0.25],
+    ["middle", 0.85, 0.45],
+    ["outside1", 0.25, 0.60],
+    ["libero", 0.50, 0.72],
+    ["outside2", 0.75, 0.62],
+    ["right_side", 0.62, 0.90],
+  ],
+  4: [
+    ["setter", 0.12, 0.28],
+    ["middle", 0.20, 0.42],
+    ["outside1", 0.30, 0.65],
+    ["outside2", 0.52, 0.65],
+    ["libero", 0.75, 0.65],
+    ["right_side", 0.85, 0.90],
+  ],
+  5: [
+    ["middle", 0.12, 0.35],
+    ["setter", 0.35, 0.52],
+    ["right_side", 0.88, 0.55],
+    ["outside1", 0.30, 0.72],
+    ["outside2", 0.52, 0.72],
+    ["libero", 0.70, 0.75],
+  ],
+  6: [
+    ["right_side", 0.72, 0.32],
+    ["middle", 0.88, 0.42],
+    ["setter", 0.65, 0.55],
+    ["outside1", 0.25, 0.75],
+    ["libero", 0.50, 0.80],
+    ["outside2", 0.75, 0.75],
+  ],
+};
+
+function defaultFor(mode: Mode, rotation: number) {
+  if (mode === "serve_receive") {
+    return (SR_DEFAULTS[rotation] ?? SR_DEFAULTS[1]).map(([r, x, y]) => makeToken(r, x, y));
+  }
+  // Defense defaults (basic; we’ll replace with real Base 1/2 once you send references)
+  return [
+    makeToken("setter", 0.55, 0.62),
+    makeToken("middle", 0.50, 0.40),
+    makeToken("right_side", 0.78, 0.72),
+    makeToken("outside1", 0.22, 0.70),
+    makeToken("outside2", 0.42, 0.58),
+    makeToken("libero", 0.55, 0.88),
+  ];
+}
+
+export default function Page() {
   const [mode, setMode] = useState<Mode>("serve_receive");
-  const [rotation, setRotation] = useState<number>(1);
+  const [rotation, setRotation] = useState(1);
 
-  const [active, setActive] = useState<Active>({ diagramId: null, name: null });
-  const [data, setData] = useState<DiagramData>(() => defaultDiagram("serve_receive", 1));
+  const [tokens, setTokens] = useState<CircleToken[]>(() => defaultFor("serve_receive", 1));
+  const [showAttacker, setShowAttacker] = useState(false);
+  const [attacker, setAttacker] = useState<CircleToken>(() => makeToken("attacker", 0.80, 0.18));
 
-  const [loadOpen, setLoadOpen] = useState(false);
-  const [loadList, setLoadList] = useState<DiagramRow[]>([]);
-  const [status, setStatus] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const title = useMemo(() => {
-    if (mode === "serve_receive") return `Serve Receive • Rotation ${rotation}`;
+    if (mode === "serve_receive") return `Rotation ${rotation}`;
     return "Defense";
   }, [mode, rotation]);
 
+  // Reset layout when mode/rotation changes (since no saving)
   useEffect(() => {
-    setReady(true);
-  }, []);
-
-  // When mode/rotation changes, reset to defaults (unless user loads a saved diagram)
-  useEffect(() => {
-    setActive({ diagramId: null, name: null });
-    setData(defaultDiagram(mode, mode === "serve_receive" ? rotation : null));
+    setSelectedId(null);
+    setTokens(defaultFor(mode, rotation));
+    if (mode === "defense") setShowAttacker(true);
+    if (mode === "serve_receive") setShowAttacker(false);
   }, [mode, rotation]);
 
+  // Delete key removes selected token (not attacker)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (!selectedId) return;
+      if (selectedId === attacker.id) return;
+      setTokens((t) => t.filter((x) => x.id !== selectedId));
+      setSelectedId(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId, attacker.id]);
+
   function addRole(role: Role) {
-    // Place near bottom center on our side by default
-    const token = createRoleToken(role, 0.5, 0.75);
-    setData((d) => ({ ...d, circles: [...d.circles, token] }));
+    setTokens((t) => [...t, makeToken(role, 0.5, 0.78)]);
   }
 
-  function resetDefault() {
-    setActive({ diagramId: null, name: null });
-    setData(defaultDiagram(mode, mode === "serve_receive" ? rotation : null));
+  function reset() {
+    setSelectedId(null);
+    setTokens(defaultFor(mode, rotation));
+    if (mode === "defense") {
+      setShowAttacker(true);
+      setAttacker(makeToken("attacker", 0.80, 0.18));
+    }
   }
-
-  function applyBase(which: "base1" | "base2") {
-    const preset = data.basePresets[which];
-    setData((d) => ({
-      ...d,
-      circles: d.circles.map((c) => {
-        const p = preset[c.role];
-        if (!p) return c;
-        return { ...c, x: p[0], y: p[1] };
-      }),
-    }));
-  }
-
-  async function openLoad() {
-    setStatus("Loading diagrams is not supported.");
-    setLoadList([]);
-    setLoadOpen(true);
-  }
-
-  async function doSave() {
-    setStatus("Saving is not supported.");
-  }
-
-  async function doSaveAs() {
-    setStatus("Saving is not supported.");
-  }
-
-  async function doDelete() {
-    setStatus("Deleting is not supported.");
-  }
-
-  function loadDiagram(row: DiagramRow) {
-    // This function will not be called as loadList is always empty
-  }
-
-  if (!ready) return null;
 
   return (
     <div className="min-h-screen flex flex-col">
       <header className="flex items-center justify-between px-4 py-3 border-b border-neutral-800 bg-neutral-950/60">
         <div className="flex items-baseline gap-3">
           <div className="font-semibold">VolleyRotations</div>
-          <div className="text-sm text-neutral-300">{title}</div>
-          {active.name && (
-            <div className="text-xs text-neutral-400 border border-neutral-800 rounded-full px-2 py-0.5">
-              {active.name}
-            </div>
-          )}
+          <div className="text-sm text-neutral-300">{mode === "serve_receive" ? "Serve Receive" : "Defense"}</div>
+          <div className="text-xs text-neutral-400 border border-neutral-800 rounded-full px-2 py-0.5">
+            {title}
+          </div>
         </div>
+        <button
+          onClick={reset}
+          className="text-sm text-neutral-300 hover:text-white border border-neutral-800 rounded-xl px-3 py-1.5 bg-neutral-900/30"
+        >
+          Reset
+        </button>
       </header>
 
       <div className="flex flex-1 min-h-0">
-        {/* Left Panel */}
         <aside className="w-[320px] max-w-[85vw] border-r border-neutral-800 bg-neutral-950/40 p-4 space-y-4 overflow-y-auto">
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-wide text-neutral-400">Mode</div>
@@ -151,7 +235,7 @@ export default function Home() {
           )}
 
           <div className="space-y-2">
-            <div className="text-xs uppercase tracking-wide text-neutral-400">Add roles</div>
+            <div className="text-xs uppercase tracking-wide text-neutral-400">Add circles</div>
             <div className="grid grid-cols-2 gap-2">
               {ROLE_ORDER.map((role) => (
                 <button
@@ -164,164 +248,153 @@ export default function Home() {
               ))}
             </div>
             <div className="text-xs text-neutral-400">
-              Tip: you can delete a circle by selecting it on the court and pressing Delete.
+              Select a circle and press <span className="text-neutral-200">Delete</span> to remove it.
             </div>
           </div>
 
           {mode === "defense" && (
             <div className="space-y-2">
-              <div className="text-xs uppercase tracking-wide text-neutral-400">Defense tools</div>
+              <div className="text-xs uppercase tracking-wide text-neutral-400">Defense</div>
               <label className="flex items-center gap-2 text-sm text-neutral-200">
                 <input
                   type="checkbox"
-                  checked={data.attacker.enabled}
-                  onChange={(e) =>
-                    setData((d) => ({ ...d, attacker: { ...d.attacker, enabled: e.target.checked } }))
-                  }
+                  checked={showAttacker}
+                  onChange={(e) => setShowAttacker(e.target.checked)}
                 />
                 Show attacker
               </label>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => applyBase("base1")}
-                  className="rounded-xl border border-neutral-800 bg-neutral-900/30 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900/60"
-                >
-                  Base 1
-                </button>
-                <button
-                  onClick={() => applyBase("base2")}
-                  className="rounded-xl border border-neutral-800 bg-neutral-900/30 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900/60"
-                >
-                  Base 2
-                </button>
+              {/* Base 1 / Base 2 intentionally omitted until you provide references */}
+              <div className="text-xs text-neutral-400">
+                Base presets will be added once you provide the defensive reference positions.
               </div>
             </div>
           )}
-
-          <div className="space-y-2">
-            <div className="text-xs uppercase tracking-wide text-neutral-400">Actions</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={doSave} className="rounded-xl bg-white text-black px-3 py-2 text-sm font-medium">
-                Save
-              </button>
-              <button
-                onClick={doSaveAs}
-                className="rounded-xl border border-neutral-800 bg-neutral-900/30 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900/60"
-              >
-                Save As
-              </button>
-              <button
-                onClick={openLoad}
-                className="rounded-xl border border-neutral-800 bg-neutral-900/30 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900/60"
-              >
-                Load
-              </button>
-              <button
-                onClick={resetDefault}
-                className="rounded-xl border border-neutral-800 bg-neutral-900/30 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900/60"
-              >
-                New
-              </button>
-              <button
-                onClick={doDelete}
-                disabled={!active.diagramId}
-                className="col-span-2 rounded-xl border border-neutral-800 bg-neutral-900/30 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900/60 disabled:opacity-40"
-              >
-                Delete
-              </button>
-            </div>
-            {status && <div className="text-sm text-neutral-300">{status}</div>}
-          </div>
         </aside>
 
-        {/* Canvas */}
         <main className="flex-1 min-w-0 p-4">
-          <CourtEditor data={data} setData={setData} />
+          <Court
+            tokens={tokens}
+            setTokens={setTokens}
+            showAttacker={showAttacker}
+            attacker={attacker}
+            setAttacker={setAttacker}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+            headerText={mode === "serve_receive" ? `THIS IS ROTATION ${rotation}` : `THIS IS DEFENSE`}
+          />
         </main>
       </div>
-
-      {loadOpen && (
-        <div className="fixed inset-0 bg-black/70 grid place-items-center p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold">Load diagram</div>
-              <button onClick={() => setLoadOpen(false)} className="text-neutral-300 hover:text-white">
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-3 max-h-[60vh] overflow-y-auto divide-y divide-neutral-800 border border-neutral-800 rounded-xl">
-              {loadList.length === 0 ? (
-                <div className="p-4 text-sm text-neutral-300">No saved diagrams for this mode/rotation yet.</div>
-              ) : (
-                loadList.map((row) => (
-                  <button
-                    key={row.id}
-                    onClick={() => loadDiagram(row)}
-                    className="w-full text-left p-3 hover:bg-neutral-900/50"
-                  >
-                    <div className="font-medium">{row.name}</div>
-                    <div className="text-xs text-neutral-400">
-                      Updated {new Date(row.updated_at).toLocaleString()}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-/** Court editor below (kept in same file for easy copy/paste) */
-
-function clamp01(n: number) {
-  return Math.max(0, Math.min(1, n));
-}
-
-function CourtEditor({
-  data,
-  setData,
+function Court({
+  tokens,
+  setTokens,
+  showAttacker,
+  attacker,
+  setAttacker,
+  selectedId,
+  setSelectedId,
+  headerText,
 }: {
-  data: DiagramData;
-  setData: React.Dispatch<React.SetStateAction<DiagramData>>;
+  tokens: CircleToken[];
+  setTokens: React.Dispatch<React.SetStateAction<CircleToken[]>>;
+  showAttacker: boolean;
+  attacker: CircleToken;
+  setAttacker: React.Dispatch<React.SetStateAction<CircleToken>>;
+  selectedId: string | null;
+  setSelectedId: (id: string | null) => void;
+  headerText: string;
 }) {
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<
+    | null
+    | { kind: "token"; id: string; pointerId: number }
+    | { kind: "attacker"; pointerId: number }
+  >(null);
 
-  // Delete key to remove selected circle
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (!activeId) return;
-        setData((d) => ({ ...d, circles: d.circles.filter((c) => c.id !== activeId) }));
-        setActiveId(null);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [activeId, setData]);
+  function getXY(e: React.PointerEvent, el: HTMLDivElement) {
+    const rect = el.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    return { x: clamp01(x), y: clamp01(y) };
+  }
 
   return (
     <div className="h-full w-full flex items-center justify-center">
       <div className="w-full max-w-3xl aspect-[3/4] rounded-2xl border border-neutral-800 overflow-hidden relative">
         <GridBackground />
-        <CourtCanvas
-          data={data}
-          activeId={activeId}
-          setActiveId={setActiveId}
-          onMoveCircle={(id, x, y) =>
-            setData((d) => ({
-              ...d,
-              circles: d.circles.map((c) => (c.id === id ? { ...c, x: clamp01(x), y: clamp01(y) } : c)),
-            }))
-          }
-          onMoveAttacker={(x, y) =>
-            setData((d) => ({ ...d, attacker: { ...d.attacker, x: clamp01(x), y: clamp01(y) } }))
-          }
-        />
+
+        {/* Title like your screenshots */}
+        <div className="absolute top-6 left-0 right-0 text-center font-extrabold tracking-tight text-2xl sm:text-3xl">
+          <span className="text-white">{headerText.split(" ").slice(0, 2).join(" ")}</span>{" "}
+          <span className="text-yellow-400">{headerText.split(" ").slice(2).join(" ")}</span>
+        </div>
+
+        <div className="absolute inset-0 p-5 pt-20">
+          <div className="absolute inset-5">
+            <svg viewBox="0 0 1000 1300" className="absolute inset-0 w-full h-full">
+              <rect x="40" y="40" width="920" height="1220" fill="none" stroke="white" strokeWidth="8" />
+              <line x1="40" y1="600" x2="960" y2="600" stroke="white" strokeWidth="8" />
+              <line x1="40" y1="900" x2="960" y2="900" stroke="white" strokeWidth="6" opacity="0.9" />
+            </svg>
+
+            <div
+              className="absolute inset-0"
+              onPointerMove={(e) => {
+                if (!drag) return;
+                const { x, y } = getXY(e, e.currentTarget);
+                if (drag.kind === "attacker") {
+                  setAttacker((a) => ({ ...a, x, y }));
+                } else {
+                  setTokens((t) => t.map((c) => (c.id === drag.id ? { ...c, x, y } : c)));
+                }
+              }}
+              onPointerUp={(e) => {
+                if (!drag) return;
+                e.currentTarget.releasePointerCapture(drag.pointerId);
+                setDrag(null);
+              }}
+              onPointerCancel={(e) => {
+                if (!drag) return;
+                e.currentTarget.releasePointerCapture(drag.pointerId);
+                setDrag(null);
+              }}
+              onPointerDown={() => {
+                // clicking empty space deselects
+                setSelectedId(null);
+              }}
+            >
+              {showAttacker && (
+                <Token
+                  token={attacker}
+                  selected={selectedId === attacker.id}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedId(attacker.id);
+                    e.currentTarget.parentElement!.setPointerCapture(e.pointerId);
+                    setDrag({ kind: "attacker", pointerId: e.pointerId });
+                  }}
+                />
+              )}
+
+              {tokens.map((t) => (
+                <Token
+                  key={t.id}
+                  token={t}
+                  selected={selectedId === t.id}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedId(t.id);
+                    e.currentTarget.parentElement!.setPointerCapture(e.pointerId);
+                    setDrag({ kind: "token", id: t.id, pointerId: e.pointerId });
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -340,147 +413,36 @@ function GridBackground() {
   );
 }
 
-function CourtCanvas({
-  data,
-  activeId,
-  setActiveId,
-  onMoveCircle,
-  onMoveAttacker,
-}: {
-  data: DiagramData;
-  activeId: string | null;
-  setActiveId: (id: string | null) => void;
-  onMoveCircle: (id: string, x: number, y: number) => void;
-  onMoveAttacker: (x: number, y: number) => void;
-}) {
-  const [drag, setDrag] = useState<
-    | null
-    | { kind: "circle"; id: string; pointerId: number }
-    | { kind: "attacker"; pointerId: number }
-  >(null);
-
-  function getXY(e: React.PointerEvent, el: HTMLDivElement) {
-    const rect = el.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    return { x: clamp01(x), y: clamp01(y) };
-  }
-
-  return (
-    <div className="absolute inset-0 p-5">
-      <div className="absolute inset-5">
-        {/* Court lines */}
-        <svg viewBox="0 0 1000 1300" className="absolute inset-0 w-full h-full">
-          {/* outer */}
-          <rect x="40" y="40" width="920" height="1220" fill="none" stroke="white" strokeWidth="8" />
-          {/* net (middle-ish) */}
-          <line x1="40" y1="600" x2="960" y2="600" stroke="white" strokeWidth="8" />
-          {/* 3m-ish line on our side */}
-          <line x1="40" y1="900" x2="960" y2="900" stroke="white" strokeWidth="6" opacity="0.9" />
-        </svg>
-
-        {/* Tokens layer */}
-        <div
-          className="absolute inset-0"
-          onPointerMove={(e) => {
-            if (!drag) return;
-            const el = e.currentTarget as HTMLDivElement;
-            const { x, y } = getXY(e, el);
-            if (drag.kind === "circle") onMoveCircle(drag.id, x, y);
-            if (drag.kind === "attacker") onMoveAttacker(x, y);
-          }}
-          onPointerUp={(e) => {
-            if (!drag) return;
-            (e.currentTarget as HTMLDivElement).releasePointerCapture(drag.pointerId);
-            setDrag(null);
-          }}
-          onPointerCancel={(e) => {
-            if (!drag) return;
-            (e.currentTarget as HTMLDivElement).releasePointerCapture(drag.pointerId);
-            setDrag(null);
-          }}
-        >
-          {data.attacker.enabled && (
-            <Token
-              id="attacker"
-              label="ATTACKER"
-              color="#fb7185"
-              x={data.attacker.x}
-              y={data.attacker.y}
-              selected={activeId === "attacker"}
-              onPointerDown={(e) => {
-                setActiveId("attacker");
-                const el = e.currentTarget.parentElement as HTMLDivElement;
-                el.setPointerCapture(e.pointerId);
-                setDrag({ kind: "attacker", pointerId: e.pointerId });
-              }}
-            />
-          )}
-
-          {data.circles.map((c) => (
-            <Token
-              key={c.id}
-              id={c.id}
-              label={c.label}
-              color={c.color}
-              x={c.x}
-              y={c.y}
-              selected={activeId === c.id}
-              onPointerDown={(e) => {
-                setActiveId(c.id);
-                const el = e.currentTarget.parentElement as HTMLDivElement;
-                el.setPointerCapture(e.pointerId);
-                setDrag({ kind: "circle", id: c.id, pointerId: e.pointerId });
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Token({
-  id,
-  label,
-  color,
-  x,
-  y,
+  token,
   selected,
   onPointerDown,
 }: {
-  id: string;
-  label: string;
-  color: string;
-  x: number;
-  y: number;
+  token: CircleToken;
   selected: boolean;
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
 }) {
-  const size = 46; // px token diameter
+  const size = 46;
   return (
     <div
       onPointerDown={onPointerDown}
       className="absolute select-none touch-none"
       style={{
-        left: `calc(${(x * 100).toFixed(4)}% - ${size / 2}px)`,
-        top: `calc(${(y * 100).toFixed(4)}% - ${size / 2}px)`,
+        left: `calc(${(token.x * 100).toFixed(4)}% - ${size / 2}px)`,
+        top: `calc(${(token.y * 100).toFixed(4)}% - ${size / 2}px)`,
       }}
-      aria-label={id}
     >
       <div
-        className={`grid place-items-center rounded-full border ${
-          selected ? "border-white" : "border-black/40"
-        } shadow`}
+        className={`grid place-items-center rounded-full border ${selected ? "border-white" : "border-black/40"} shadow`}
         style={{
           width: size,
           height: size,
-          background: color,
-          transform: selected ? "scale(1.05)" : "scale(1)",
+          background: token.color,
+          transform: selected ? "scale(1.06)" : "scale(1)",
         }}
       />
-      <div className="mt-1 text-[11px] font-semibold text-center" style={{ color }}>
-        {label}
+      <div className="mt-1 text-[11px] font-semibold text-center" style={{ color: token.color }}>
+        {token.label}
       </div>
     </div>
   );
