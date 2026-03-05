@@ -483,45 +483,6 @@ export default function Page() {
             </div>
           )}
 
-          {/* Coordinate readout (desktop) */}
-          {false && (
-          <div className="space-y-2">
-            <div className="text-xs uppercase tracking-wide text-neutral-400">Selected</div>
-
-            {!selectedToken ? (
-              <div className="text-sm text-neutral-300">Click a circle to see its coordinates.</div>
-            ) : (
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900/30 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium" style={{ color: selectedToken.color }}>
-                    {selectedToken.label}
-                  </div>
-                  <button
-                    className="text-xs text-neutral-300 hover:text-white"
-                    onClick={() =>
-                      navigator.clipboard.writeText(
-                        `x:${selectedToken.x.toFixed(4)}, y:${selectedToken.y.toFixed(4)}`
-                      )
-                    }
-                  >
-                    Copy
-                  </button>
-                </div>
-
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1">
-                    <div className="text-[11px] text-neutral-400">x (0–1)</div>
-                    <div className="font-mono">{selectedToken.x.toFixed(4)}</div>
-                  </div>
-                  <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1">
-                    <div className="text-[11px] text-neutral-400">y (0–1)</div>
-                    <div className="font-mono">{selectedToken.y.toFixed(4)}</div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-          )}
         </aside>
 
         <main className="flex-1 min-w-0 p-4 pb-24 md:pb-4">
