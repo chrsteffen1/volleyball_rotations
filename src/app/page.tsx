@@ -99,7 +99,7 @@ const SR_DEFAULTS: Record<number, Array<[Role, number, number]>> = {
     ["outside1", 0.21, 0.75],
     ["outside2", 0.50, 0.81],
     ["libero", 0.75, 0.81],
-    ["right_side", 0.08, 0.90],
+    ["right_side", 0.30, 0.90],
     ["setter", 0.75, 0.50],
   ],
   3: [
